@@ -1,0 +1,17 @@
+{
+  "project": "RustAssay",
+  "qualification": {
+    "testsPassed": 5,
+    "runtime": "Rust 1.99.0 stable",
+    "pin": "1.98.1",
+    "exactPinQualified": false,
+    "format": "Passed",
+    "clippy": "Passed"
+  },
+  "knownLimitations": [
+    "Lexical checks report forbidden fragments inside comments",
+    "Empty directory scans return Pass; no nonempty scope requirement",
+    "A clean receipt is not proof of purity or correctness"
+  ],
+  "provenance": "Preserved USB Assay source; see CanonFlow-Assay/Assay-USB-Review"
+}

@@ -1,0 +1,25 @@
+name: RustAssay CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
+      - run: cargo test
+      - run: cargo run -- check examples/clean/src/domain --json
+      - run: '! cargo run -- check examples/violations/src/domain'

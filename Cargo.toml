@@ -1,0 +1,24 @@
+[package]
+name = "rust-assay"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+description = "A deterministic lexical checker for a small functional Rust profile"
+repository = "https://github.com/CanonFlow-Assay/RustAssay"
+
+[lib]
+name = "rust_assay"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rust-assay"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+nursery = "warn"
