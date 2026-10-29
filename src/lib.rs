@@ -90,7 +90,29 @@ pub fn inspect(path: impl Into<PathBuf>, source: &str) -> Vec<Finding> {
 
 #[must_use]
 pub fn render_json(root: &Path, scanned_files: usize, findings: &[Finding]) -> String {
-    let verdict = if findings.is_empty() { "Pass" } else { "Fail" };
+    render_json_with_gaps(root, scanned_files, findings, &[])
+}
+
+#[must_use]
+pub fn render_json_with_gaps(
+    root: &Path,
+    scanned_files: usize,
+    findings: &[Finding],
+    missing: &[String],
+) -> String {
+    let mut gaps = missing.to_vec();
+    if scanned_files == 0 && gaps.is_empty() {
+        gaps.push("No supported source files were scanned.".into());
+    }
+    gaps.sort();
+    gaps.dedup();
+    let verdict = if !findings.is_empty() {
+        "Fail"
+    } else if !gaps.is_empty() {
+        "Inconclusive"
+    } else {
+        "Pass"
+    };
     let finding_json = findings
         .iter()
         .map(|finding| {
@@ -106,12 +128,24 @@ pub fn render_json(root: &Path, scanned_files: usize, findings: &[Finding]) -> S
         .collect::<Vec<_>>()
         .join(",");
 
+    let missing_json = if gaps.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ",\"missingEvidence\":[{}]",
+            gaps.iter()
+                .map(|gap| format!("\"{}\"", escape_json(gap)))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    };
     format!(
-        "{{\"schemaVersion\":\"rust-assay/v0.1\",\"root\":\"{}\",\"scannedFiles\":{},\"verdict\":\"{}\",\"findings\":[{}]}}",
+        "{{\"schemaVersion\":\"rust-assay/v0.1\",\"root\":\"{}\",\"scannedFiles\":{},\"verdict\":\"{}\",\"findings\":[{}]{}}}",
         escape_json(&root.display().to_string()),
         scanned_files,
         verdict,
         finding_json,
+        missing_json,
     )
 }
 
