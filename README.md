@@ -15,3 +15,16 @@ cargo run -- check examples/violations/src/domain
 `check` returns a deterministic JSON receipt with `--json`. A clean receipt means only that the three documented lexical rules did not match the scanned source; read [the contract](docs/CONTRACT.md) for its evidence boundary. The reusable authoring guidance is in [functional-rust](skills/functional-rust/SKILL.md).
 
 Licensed under Apache-2.0.
+
+## ExpenseGuard playground
+
+The [native ExpenseGuard playground](playground/README.md) adds requirements,
+real baseline/expanded acceptance execution, isolated mutation controls, bounded
+offline investigation advice and source/log freshness checks. Run:
+
+```sh
+python3 playground/run.py --output artifacts/playground/first-run
+```
+
+This experiment is separate from checker authority. Exact runtime pin gaps remain
+Inconclusive even when the experiment completes; survivors remain visible.
