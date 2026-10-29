@@ -21,8 +21,9 @@ python3 playground/review.py artifacts/playground/first-run/run.json
 Choose a **fresh output directory** for every experiment. Existing evidence is
 never overwritten. The adapter needs Python 3.10+; Python domain execution uses
 Python 3.14. The other domains use their actual installed native compilers.
-The runner records compiler versions and hashes. Rust uses the already installed
-`stable` toolchain and never asks rustup to fetch the absent pinned compiler.
+The runner records compiler versions and hashes. Rust uses an explicit
+`RUSTUP_TOOLCHAIN` when supplied, otherwise the already installed `stable`
+toolchain. It never asks rustup to download a compiler during the experiment.
 Kotlin verifies the compiler files against the existing repository lock before
 compiling and records Java. Swift compiles in Swift language mode 6.
 
@@ -100,3 +101,23 @@ migration, a general mutation engine, a coverage collector, a model benchmark,
 or platform/deployment qualification. Future increments can add deliberately
 reviewed application contracts, scope-complete receipts, packaged consumers and
 wider investigations. Preserve survivors and missing evidence throughout.
+
+## Exact-pin follow-up (29 October 2026)
+
+The original host-runtime experiment remains preserved under
+`artifacts/playground/astra-2026-10-29/`. A later isolated SDK preparation adds
+the exact existing pin without replacing the user's default runtime. Toolchain
+install logs and provenance are under the family's ignored
+`brainstorm/astra/evidence/toolchains-2026-10-29/native/` directory.
+The pinned follow-up uses a fresh `artifacts/pinned-2026-10-29/` directory.
+
+```sh
+ASTRA_NATIVE_SDK="$(realpath ../brainstorm/astra/evidence/toolchains-2026-10-29/native)"
+env PATH="$ASTRA_NATIVE_SDK/rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin:$PATH" \
+  RUSTUP_HOME="$ASTRA_NATIVE_SDK/rustup" CARGO_HOME="$ASTRA_NATIVE_SDK/cargo" \
+  RUSTUP_TOOLCHAIN=1.98.1 CARGO_TARGET_DIR="$ASTRA_NATIVE_SDK/rust-target" \
+  python3 playground/run.py --output artifacts/pinned-2026-10-29
+```
+
+Use a different fresh output directory when repeating the command. SDK paths
+are local task caches and are not a portable installer or a package release.

@@ -74,7 +74,7 @@ def toolchain(language: str, output: Path) -> tuple[dict, list[str], list[str]]:
         version_args, pin = ["--version"], "3.14.7"
     elif language == "Rust":
         # Use an already installed toolchain; never let rustup download the unavailable pin.
-        location = subprocess.run(["rustup", "which", "--toolchain", "stable", "rustc"],
+        location = subprocess.run(["rustup", "which", "--toolchain", os.environ.get("RUSTUP_TOOLCHAIN", "stable"), "rustc"],
                                   capture_output=True, text=True, timeout=10)
         compiler = [location.stdout.strip()] if location.returncode == 0 else ["rustc"]
         version_args, pin = ["--version"], "1.98.1"
