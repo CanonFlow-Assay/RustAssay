@@ -23,5 +23,14 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy -- -D warnings
       - run: cargo test
-      - run: cargo run -- check examples/clean/src/domain --json
-      - run: '! cargo run -- check examples/violations/src/domain'
+      - run: cargo build --locked --bin rust-assay
+      - run: target/debug/rust-assay check examples/clean/src/domain --json
+      - name: Require a finding in the violating specimen
+        shell: bash
+        run: |
+          checker_exit=0
+          target/debug/rust-assay check examples/violations/src/domain --json || checker_exit=$?
+          if [ "$checker_exit" -ne 1 ]; then
+            printf 'Expected RustAssay findings exit 1, observed %s\n' "$checker_exit" >&2
+            exit 1
+          fi
