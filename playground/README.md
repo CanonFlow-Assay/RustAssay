@@ -90,7 +90,7 @@ cargo +stable run --offline -- check playground/expenseguard/domain --json
 cargo +stable run --offline -- check examples/violations/src/domain --json
 ```
 
-The clean domain should produce no selected lexical findings. The existing violating specimen must still exit 1. Lexical absence does not prove purity, parsing, source completeness or runtime correctness.
+The clean domain should produce zero syntax findings. The existing violating specimen must still exit 1. Purity and runtime correctness require separate evidence.
 The experiment does not promote admitted rules, waive findings, change historical
 receipts or alter the existing checker exit/JSON contract.
 

@@ -1,8 +1,8 @@
 # RustAssay
 
-RustAssay is a small, deterministic checker for a functional Rust core. It pairs a pure lexical scanner with a worked order domain where validation is a `Result`, alternatives are an `enum`, and total calculation is a fold. The shell that reads files lives only in the CLI.
+RustAssay checks functional Rust cores with a deterministic `syn` AST scanner. It pairs the scanner with an order domain that models validation as a `Result`, alternatives as an `enum`, and total calculation as a fold. The CLI reads files and resolves the optional Cargo dependency audit.
 
-The repository pins [Rust `1.98.1`](https://blog.rust-lang.org/releases/), the current stable release at its creation. It uses the Rust 2024 edition and has no runtime dependencies or telemetry.
+The repository pins Rust `1.98.1` and uses the Rust 2024 edition.
 
 ```sh
 cargo fmt --check
@@ -12,9 +12,17 @@ cargo run -- check examples/clean/src/domain --json
 cargo run -- check examples/violations/src/domain
 ```
 
-`check` returns a deterministic JSON receipt with `--json`. A clean receipt means only that the three documented lexical rules did not match the scanned source; read [the contract](docs/CONTRACT.md) for its evidence boundary. The reusable authoring guidance is in [functional-rust](skills/functional-rust/SKILL.md).
+`check` returns a deterministic JSON receipt with `--json`. The core checks cover fallible methods, panic macros, named effects, ambient time and environment access, and direct indexing. [Contract](docs/CONTRACT.md) · [Functional Rust guidance](skills/functional-rust/SKILL.md)
 
-Licensed under Apache-2.0.
+## Audit runtime dependencies
+
+Pass the core package's manifest to inspect its resolved runtime dependency tree alongside its Rust source.
+
+```sh
+rust-assay check crates/core/src --check-deps crates/core/Cargo.toml --json
+```
+
+The audit requires a current `Cargo.lock` and locally cached sources. It follows direct and transitive runtime dependencies across Cargo target platforms and checks their library sources for `std::fs` and `std::net` paths. The receipt lists the resolved package IDs, selected features, and observed `#![no_std]` declarations. [Dependency audit contract](docs/CONTRACT.md#runtime-dependency-audit)
 
 ## ExpenseGuard playground
 
@@ -31,7 +39,7 @@ Inconclusive even when the experiment completes; survivors remain visible.
 
 ## Scope completeness
 
-Empty, linked, unreadable and unsupported source scopes cannot Pass. Incomplete JSON retains `missingEvidence`; known findings remain Fail. See the [current scope addendum](docs/CONTRACT.md#scope-completeness-increment-29-october-2026). Original USB evaluation metadata remains historical; its current-resolution section records this increment.
+Empty, linked, unreadable, unparseable, and unsupported source scopes return Inconclusive. Incomplete JSON retains `missingEvidence`, and known findings take precedence as Fail. [Scope completeness](docs/CONTRACT.md#scope-completeness)
 
 ## Requirements lifecycle and local archive consumer
 
@@ -41,3 +49,5 @@ baseline, retains real Unicode-boundary acceptance failures, executes the repair
 `python3 playground/lifecycle/run.py --output ../brainstorm/astra/evidence/native-lifecycle-a-fresh-run`
 under the documented exact SDK environment. Its assessment remains separate
 from checker authority and human release approval.
+
+Licensed under Apache-2.0.

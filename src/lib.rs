@@ -1,39 +1,20 @@
 //! Pure, deterministic observations for the Rust functional profile.
-//! The scanner is intentionally lexical: it does not claim AST or type truth.
 
+use serde_json::json;
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+
+mod syntax;
+
+pub use syntax::{RULES, inspect, inspect_dependency};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Rule {
     pub id: &'static str,
     pub title: &'static str,
+    /// Representative source spellings for display. Matching uses parsed syntax.
     pub forbidden_fragments: &'static [&'static str],
 }
-
-pub const RULES: &[Rule] = &[
-    Rule {
-        id: "RSA-F001",
-        title: "Expected domain failures use Result rather than unwrap or expect",
-        forbidden_fragments: &[".unwrap()", ".expect("],
-    },
-    Rule {
-        id: "RSA-F002",
-        title: "Domain code does not terminate control flow with panic macros",
-        forbidden_fragments: &["panic!(", "unreachable!(", "todo!(", "unimplemented!("],
-    },
-    Rule {
-        id: "RSA-F003",
-        title: "Domain code does not perform named effects",
-        forbidden_fragments: &[
-            "std::fs",
-            "std::net",
-            "std::process",
-            "println!(",
-            "eprintln!(",
-        ],
-    },
-];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Finding {
@@ -61,31 +42,17 @@ impl PartialOrd for Finding {
     }
 }
 
-/// Inspects one UTF-8 Rust source file without reading the filesystem.
-/// Keeping this function pure makes the rule behavior easy to test and reuse.
-pub fn inspect(path: impl Into<PathBuf>, source: &str) -> Vec<Finding> {
-    let path = path.into();
-    let mut findings = Vec::new();
+pub struct DependencyAudit {
+    pub manifest: PathBuf,
+    pub packages: Vec<DependencyPackage>,
+}
 
-    for (line_offset, line) in source.lines().enumerate() {
-        for rule in RULES {
-            for fragment in rule.forbidden_fragments {
-                if let Some(column_offset) = line.find(fragment) {
-                    findings.push(Finding {
-                        rule_id: rule.id,
-                        path: path.clone(),
-                        line: line_offset + 1,
-                        column: column_offset + 1,
-                        message: rule.title,
-                    });
-                    break;
-                }
-            }
-        }
-    }
-
-    findings.sort();
-    findings
+pub struct DependencyPackage {
+    pub id: String,
+    pub library: PathBuf,
+    pub features: Vec<String>,
+    /// Whether the crate root contains an unconditional `#![no_std]`, if parsed.
+    pub declares_no_std: Option<bool>,
 }
 
 #[must_use]
@@ -99,6 +66,17 @@ pub fn render_json_with_gaps(
     scanned_files: usize,
     findings: &[Finding],
     missing: &[String],
+) -> String {
+    render_json_with_audit(root, scanned_files, findings, missing, None)
+}
+
+#[must_use]
+pub fn render_json_with_audit(
+    root: &Path,
+    scanned_files: usize,
+    findings: &[Finding],
+    missing: &[String],
+    audit: Option<&DependencyAudit>,
 ) -> String {
     let mut gaps = missing.to_vec();
     if scanned_files == 0 && gaps.is_empty() {
@@ -139,13 +117,30 @@ pub fn render_json_with_gaps(
                 .join(",")
         )
     };
+    let dependency_json = audit.map_or_else(String::new, |report| {
+        let packages = report
+            .packages
+            .iter()
+            .map(|package| {
+                json!({
+                    "id": package.id,
+                    "library": package.library.to_string_lossy(),
+                    "features": package.features,
+                    "declaresNoStd": package.declares_no_std,
+                })
+            })
+            .collect::<Vec<_>>();
+        let evidence = json!({"manifest": report.manifest.to_string_lossy(), "packages": packages});
+        format!(",\"dependencyAudit\":{evidence}")
+    });
     format!(
-        "{{\"schemaVersion\":\"rust-assay/v0.1\",\"root\":\"{}\",\"scannedFiles\":{},\"verdict\":\"{}\",\"findings\":[{}]{}}}",
+        "{{\"schemaVersion\":\"rust-assay/v0.1\",\"root\":\"{}\",\"scannedFiles\":{},\"verdict\":\"{}\",\"findings\":[{}]{}{}}}",
         escape_json(&root.display().to_string()),
         scanned_files,
         verdict,
         finding_json,
         missing_json,
+        dependency_json,
     )
 }
 
@@ -174,13 +169,18 @@ mod tests {
     #[test]
     fn pure_result_domain_is_clean() {
         let source = "pub fn parse(text: &str) -> Result<String, Error> { Ok(text.into()) }";
-        assert!(inspect("domain/order.rs", source).is_empty());
+        assert!(
+            inspect("domain/order.rs", source)
+                .expect("Rust syntax")
+                .is_empty()
+        );
     }
 
     #[test]
     fn scanner_reports_each_rule_at_a_stable_location() {
-        let source = "let x = value.unwrap();\npanic!(\"bad\");\nprintln!(\"effect\");";
-        let findings = inspect("domain/order.rs", source);
+        let source =
+            "fn f() {\nlet x = value.unwrap();\npanic!(\"bad\");\nprintln!(\"effect\");\n}";
+        let findings = inspect("domain/order.rs", source).expect("Rust syntax");
         assert_eq!(findings.len(), 3);
         assert_eq!(findings[0].rule_id, "RSA-F001");
         assert_eq!(findings[1].rule_id, "RSA-F002");
@@ -189,7 +189,8 @@ mod tests {
 
     #[test]
     fn json_receipt_is_deterministic() {
-        let findings = inspect("domain/order.rs", "value.expect(\"present\")");
+        let findings = inspect("domain/order.rs", "fn f() { value.expect(\"present\"); }")
+            .expect("Rust syntax");
         let first = render_json(Path::new("examples/clean"), 1, &findings);
         let second = render_json(Path::new("examples/clean"), 1, &findings);
         assert_eq!(first, second);

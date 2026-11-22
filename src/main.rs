@@ -1,87 +1,67 @@
-use rust_assay::{inspect, render_json_with_gaps};
+use rust_assay::{Finding, inspect, render_json_with_audit};
 use std::env;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-fn main() -> ExitCode {
-    let Some((root, json)) = parse_arguments() else {
-        eprintln!("usage: rust-assay check <directory> [--json]");
-        return ExitCode::from(64);
-    };
+mod dependencies;
 
-    let files = match rust_files(&root) {
-        Ok(files) => files,
-        Err(error) => {
-            eprintln!("rust-assay: {error}");
-            if json {
-                println!(
-                    "{}",
-                    render_json_with_gaps(
-                        &root,
-                        0,
-                        &[],
-                        &["Source scope is missing, unreadable or unsupported.".into()]
-                    )
-                );
-            }
-            return ExitCode::from(2);
-        }
+const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_SOURCE_FILES: usize = 10_000;
+const MAX_DEPTH: usize = 64;
+
+fn main() -> ExitCode {
+    let Some(Arguments {
+        root,
+        json,
+        manifest,
+    }) = parse_arguments()
+    else {
+        eprintln!("usage: rust-assay check <directory> [--json] [--check-deps <Cargo.toml>]");
+        return ExitCode::from(64);
     };
 
     let mut findings = Vec::new();
     let mut gaps = Vec::new();
-    let mut scanned = 0;
-    let mut total_bytes = 0;
-    for file in &files {
-        let mut bytes = Vec::new();
-        match fs::File::open(file)
-            .and_then(|input| input.take(4 * 1024 * 1024 + 1).read_to_end(&mut bytes))
-        {
-            Ok(_) => {
-                total_bytes += bytes.len();
-                if bytes.len() > 4 * 1024 * 1024 || total_bytes > 64 * 1024 * 1024 {
-                    gaps.push("Source bytes exceed the supported scope limit.".into());
-                    break;
-                }
-                match String::from_utf8(bytes) {
-                    Ok(source) => {
-                        findings.extend(inspect(file, &source));
-                        scanned += 1;
-                    }
-                    Err(_) => gaps.push("Source could not be read as UTF-8.".into()),
-                }
-            }
-            Err(error) => {
-                eprintln!("rust-assay: cannot read {}: {error}", file.display());
-                gaps.push("Source could not be read as UTF-8.".into());
-            }
-        }
-    }
-    findings.sort();
-    if scanned == 0 && gaps.is_empty() {
-        gaps.push("No supported source files were scanned.".into());
-    }
+    let scanned = scan_root(&root, &mut findings, &mut gaps);
+    let audit = manifest.map(|path| dependencies::audit(&root, path, &mut findings, &mut gaps));
+    findings.sort_unstable();
+    findings.dedup();
+    gaps.sort_unstable();
+    gaps.dedup();
 
     if json {
         println!(
             "{}",
-            render_json_with_gaps(&root, scanned, &findings, &gaps)
+            render_json_with_audit(&root, scanned, &findings, &gaps, audit.as_ref())
         );
-    } else if findings.is_empty() && gaps.is_empty() {
-        println!("Pass: {scanned} Rust files scanned.");
-    } else if findings.is_empty() {
-        println!("Inconclusive: {}", gaps.join("; "));
     } else {
-        for finding in &findings {
+        if findings.is_empty() && gaps.is_empty() {
+            println!("Pass: {scanned} Rust files scanned.");
+        } else if findings.is_empty() {
+            println!("Inconclusive: {}", gaps.join("; "));
+        } else {
+            for finding in &findings {
+                println!(
+                    "{}:{}:{} {} {}",
+                    finding.path.display(),
+                    finding.line,
+                    finding.column,
+                    finding.rule_id,
+                    finding.message
+                );
+            }
+            for gap in &gaps {
+                println!("Missing evidence: {gap}");
+            }
+        }
+        if let Some(audit) = audit {
             println!(
-                "{}:{}:{} {} {}",
-                finding.path.display(),
-                finding.line,
-                finding.column,
-                finding.rule_id,
-                finding.message
+                "Dependency audit: {} runtime packages in {}.",
+                audit.packages.len(),
+                audit.manifest.display()
             );
         }
     }
@@ -95,17 +75,92 @@ fn main() -> ExitCode {
     }
 }
 
-fn parse_arguments() -> Option<(PathBuf, bool)> {
-    let mut arguments = env::args().skip(1);
-    if arguments.next()?.as_str() != "check" {
+fn scan_root(root: &Path, findings: &mut Vec<Finding>, gaps: &mut Vec<String>) -> usize {
+    let files = match rust_files(root) {
+        Ok(files) => files,
+        Err(error) => {
+            eprintln!("rust-assay: {error}");
+            gaps.push("Source scope is missing, unreadable or unsupported.".into());
+            return 0;
+        }
+    };
+
+    let mut scanned = 0;
+    let mut total_bytes = 0;
+    for file in &files {
+        let mut bytes = Vec::new();
+        match fs::File::open(file)
+            .and_then(|input| input.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes))
+        {
+            Ok(_) => {
+                total_bytes += bytes.len() as u64;
+                if bytes.len() as u64 > MAX_FILE_BYTES || total_bytes > MAX_TOTAL_BYTES {
+                    gaps.push("Source bytes exceed the supported scope limit.".into());
+                    break;
+                }
+                match String::from_utf8(bytes) {
+                    Ok(source) => match inspect(file, &source) {
+                        Ok(observed) => {
+                            findings.extend(observed);
+                            scanned += 1;
+                        }
+                        Err(error) => {
+                            let location = error.span().start();
+                            gaps.push(format!(
+                                "Cannot parse {} at {}:{} ({error}).",
+                                file.display(),
+                                location.line,
+                                location.column + 1
+                            ));
+                        }
+                    },
+                    Err(_) => gaps.push("Source could not be read as UTF-8.".into()),
+                }
+            }
+            Err(error) => {
+                eprintln!("rust-assay: cannot read {}: {error}", file.display());
+                gaps.push("Source could not be read as UTF-8.".into());
+            }
+        }
+    }
+    if scanned == 0 && gaps.is_empty() {
+        gaps.push("No supported source files were scanned.".into());
+    }
+    scanned
+}
+
+struct Arguments {
+    root: PathBuf,
+    json: bool,
+    manifest: Option<PathBuf>,
+}
+
+fn parse_arguments() -> Option<Arguments> {
+    let mut arguments = env::args_os().skip(1);
+    if arguments.next()? != "check" {
         return None;
     }
     let root = PathBuf::from(arguments.next()?);
-    let remaining = arguments.collect::<Vec<_>>();
-    if remaining.iter().any(|argument| argument != "--json") {
-        return None;
+    let mut json = false;
+    let mut manifest = None;
+    while let Some(argument) = arguments.next() {
+        if argument == "--json" {
+            json = true;
+        } else if argument == "--check-deps" && manifest.is_none() {
+            let path = arguments.next()?;
+            if path == "--json" || path == "--check-deps" {
+                return None;
+            }
+            manifest = Some(PathBuf::from(path));
+        } else {
+            return None;
+        }
     }
-    Some((root, remaining.iter().any(|argument| argument == "--json")))
+    Some(Arguments {
+        root,
+        json,
+        manifest,
+    })
 }
 
 fn rust_files(root: &Path) -> std::io::Result<Vec<PathBuf>> {
@@ -126,7 +181,7 @@ fn rust_files(root: &Path) -> std::io::Result<Vec<PathBuf>> {
 }
 
 fn visit(directory: &Path, files: &mut Vec<PathBuf>, depth: usize) -> std::io::Result<()> {
-    if depth > 64 {
+    if depth > MAX_DEPTH {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "Source depth exceeds the supported limit.",
@@ -152,7 +207,7 @@ fn visit(directory: &Path, files: &mut Vec<PathBuf>, depth: usize) -> std::io::R
                 ));
             }
             files.push(path);
-            if files.len() > 10_000 {
+            if files.len() > MAX_SOURCE_FILES {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     "Source file count exceeds the supported limit.",
