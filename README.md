@@ -51,3 +51,15 @@ under the documented exact SDK environment. Its assessment remains separate
 from checker authority and human release approval.
 
 Licensed under Apache-2.0.
+
+## Estate evidence
+
+Select the same Rust pin for the engine and the playground, even if the
+host default has advanced.
+
+```sh
+cargo +1.98.1 test --locked --offline
+RUSTUP_TOOLCHAIN=1.98.1 python3 playground/run.py --output artifacts/pinned-expenseguard
+```
+
+Keep each mutation disposition and the toolchain identity from `run.json`.
