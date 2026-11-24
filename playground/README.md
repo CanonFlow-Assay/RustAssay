@@ -121,3 +121,6 @@ env PATH="$ASTRA_NATIVE_SDK/rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bi
 
 Use a different fresh output directory when repeating the command. SDK paths
 are local task caches and are not a portable installer or a package release.
+
+See [phase-1 portable convergence](CONVERGENCE.md) for the next bounded Rust
+application boundary and its nonclaims.
